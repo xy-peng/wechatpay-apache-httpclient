@@ -17,6 +17,7 @@ import org.apache.http.impl.execchain.ClientExecChain;
 import org.apache.http.util.EntityUtils;
 
 public class SignatureExec implements ClientExecChain {
+
   final ClientExecChain mainExec;
   final Credentials credentials;
   final Validator validator;
@@ -36,7 +37,8 @@ public class SignatureExec implements ClientExecChain {
     return newEntity;
   }
 
-  protected void convertToRepeatableResponseEntity(CloseableHttpResponse response) throws IOException {
+  protected void convertToRepeatableResponseEntity(CloseableHttpResponse response)
+      throws IOException {
     HttpEntity entity = response.getEntity();
     if (entity != null && !entity.isRepeatable()) {
       response.setEntity(newRepeatableEntity(entity));
@@ -64,15 +66,17 @@ public class SignatureExec implements ClientExecChain {
 
   private CloseableHttpResponse executeWithSignature(HttpRoute route, HttpRequestWrapper request,
       HttpClientContext context, HttpExecutionAware execAware) throws IOException, HttpException {
-    HttpUriRequest newRequest = RequestBuilder.copy(request.getOriginal()).build();
-    convertToRepeatableRequestEntity(newRequest);
-    // 添加认证信息
-    newRequest.addHeader("Authorization",
-        credentials.getSchema() + " " + credentials.getToken(newRequest));
+    if (!request.containsHeader("Authorization")) {
+      HttpUriRequest newRequest = RequestBuilder.copy(request.getOriginal()).build();
+      convertToRepeatableRequestEntity(newRequest);
+      // 添加认证信息
+      newRequest.addHeader("Authorization",
+          credentials.getSchema() + " " + credentials.getToken(newRequest));
+      request = HttpRequestWrapper.wrap(newRequest);
+    }
 
     // 执行
-    CloseableHttpResponse response = mainExec.execute(
-        route, HttpRequestWrapper.wrap(newRequest), context, execAware);
+    CloseableHttpResponse response = mainExec.execute(route, request, context, execAware);
 
     // 对成功应答验签
     StatusLine statusLine = response.getStatusLine();
