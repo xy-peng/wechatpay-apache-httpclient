@@ -9,11 +9,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URLConnection;
 import java.security.PrivateKey;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.methods.RequestBuilder;
 import org.apache.http.client.utils.URIBuilder;
+import org.apache.http.entity.ContentType;
 import org.apache.http.entity.mime.HttpMultipartMode;
 import org.apache.http.entity.mime.MultipartEntityBuilder;
 
@@ -24,7 +26,7 @@ public class UploadRequestBuilder {
 
   private String fileName;
   private String fileSha256;
-  private InputStream fileInputStream;
+  private InputStream inputStream;
   private org.apache.http.entity.ContentType fileContentType;
 
   private String meta;
@@ -47,17 +49,24 @@ public class UploadRequestBuilder {
 
   public UploadRequestBuilder withImageFile(String filePathName) throws IOException {
     File file = new File(filePathName);
-    this.fileName = file.getName();
-    this.fileSha256 = DigestUtils.sha256Hex(new FileInputStream(file));
-    this.fileInputStream = new FileInputStream(file);
-    return this;
+
+    String sha256 = DigestUtils.sha256Hex(new FileInputStream(file));
+    return withImage(file.getName(), sha256, new FileInputStream(file));
   }
 
   public UploadRequestBuilder withImage(String fileName, String fileSha256,
       InputStream inputStream) {
     this.fileName = fileName;
     this.fileSha256 = fileSha256;
-    this.fileInputStream = inputStream;
+    this.inputStream = inputStream;
+
+    String mimeType = URLConnection.guessContentTypeFromName(fileName);
+    if (mimeType == null) {
+      // guess this is a video uploading
+      this.fileContentType = ContentType.APPLICATION_OCTET_STREAM;
+    } else {
+      this.fileContentType = ContentType.create(mimeType);
+    }
     return this;
   }
 
@@ -71,18 +80,8 @@ public class UploadRequestBuilder {
       throw new IllegalArgumentException("缺少身份认证信息");
     }
 
-    if (fileName == null || fileSha256 == null || fileInputStream == null) {
+    if (fileName == null || fileSha256 == null || inputStream == null) {
       throw new IllegalArgumentException("缺少待上传图片文件信息");
-    }
-
-    if (fileName.toLowerCase().endsWith(".jpg")) {
-      this.fileContentType = org.apache.http.entity.ContentType.IMAGE_JPEG;
-    } else if (fileName.toLowerCase().endsWith(".png")) {
-      this.fileContentType = org.apache.http.entity.ContentType.IMAGE_PNG;
-    } else if (fileName.toLowerCase().endsWith(".bmp")) {
-      this.fileContentType = org.apache.http.entity.ContentType.IMAGE_BMP;
-    } else {
-      throw new IllegalArgumentException("图片文件仅支持JPG、BMP、PNG");
     }
 
     if (uri == null) {
@@ -116,7 +115,7 @@ public class UploadRequestBuilder {
 
     MultipartEntityBuilder entityBuilder = MultipartEntityBuilder.create();
     entityBuilder.setMode(HttpMultipartMode.RFC6532)
-        .addBinaryBody("file", fileInputStream, fileContentType, fileName)
+        .addBinaryBody("file", inputStream, fileContentType, fileName)
         .addTextBody("meta", meta, org.apache.http.entity.ContentType.APPLICATION_JSON);
 
     return RequestBuilder.post()
